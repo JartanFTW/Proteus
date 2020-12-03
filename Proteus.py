@@ -24,6 +24,7 @@ clear = lambda: os.system("cls")
 
 
 def menuOption(options, initMessage = None):
+	clear()
 	while True:
 		iter = 0
 		if initMessage:
@@ -36,11 +37,11 @@ def menuOption(options, initMessage = None):
 			option = int(input("Please select an option: "))
 			if abs(option) - 1 > len(options):
 				raise IndexError
-			cls()
+			clear()
 			return abs(option) - 1
 		except:
 			input("That is not a valid option! Press Enter to retry.")
-			cls()
+			clear()
 			continue
 
 def loadConfig():
@@ -72,6 +73,15 @@ async def titleManager(thing, thing2):
 		await asyncio.sleep(1)
 		system("title " + f"Proteus v{version} | Jartan#7450 | My title here.")
 
+async def checkWhitelist(whitelistUsername, whitelistPassword):
+	while True:
+		await asyncio.sleep(3600)
+		#Check whitelist code here.
+		
+async def unfollowUser(user, cookie):
+	async with aiosonic.HttpClient() as client:
+		request = await client.post(f"https://friends.roblox.com/v1/users/{user}/unfollow", headers={"Cookie": cookie, "X-CSRF-TOKEN": csrfToken, "Content-Length": "0"})
+	return request.status_code
 
 async def main():
 	#Loading config
@@ -82,6 +92,7 @@ async def main():
 	
 	print("Loading Configuration.")
 	logging.info("Loading Configuration.")
+	global apiCookie
 	whitelistUsername, whitelistPassword, apiCookie, groups, onlyPremium, blacklist = loadConfig()
 	logging.info("Configuration Loaded Successfully.")
 	print("Configuration Loaded Successfully.")
@@ -90,8 +101,10 @@ async def main():
 	loop.run_until_complete(checkWhitelist())
 	print("Whitelist Validated.")
 	
+	print("Checking Cookie.")
+	
 	while True:
-	choice = menuOption(["Follow players of all ranks.", "Select which ranks to follow.", "Check how many users you are following.", "Unfollow all users.", "Exit."], "Please select what you would like to do. \n")
+		choice = menuOption(["Follow players of all ranks.", "Select which ranks to follow.", "Check how many users you are following.", "Unfollow all users.", "Exit."], "Please select what you would like to do. \n")
 	
 	
 	
