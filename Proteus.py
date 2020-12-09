@@ -238,21 +238,17 @@ async def main():
 	while True:
 		choice = menuOption(["Follow players of all ranks.", "Select which ranks to follow.", "Check how many users you are following.", "Unfollow all users.", "Exit."], "Please select what you would like to do. \n")
 
-		if choice == 1:
+		if choice == 1: #Follow players of all ranks.
 			pass
-			#Follow players of all ranks.
-		elif choice == 2:
+		elif choice == 2: #Select which ranks to follow.
 			pass
-			#Select which ranks to follow.
-		elif choice == 3:
+		elif choice == 3: #Check following count.
 			await checkFollowingCount(user)
-			#Check following count.
-		elif choice == 4:
-			#Unfollow all.
+		elif choice == 4: #Unfollow all.
 			choice = menuOption(["Yes.", "No."], "Are you sure you want to unfollow everyone? This is non-reversible!")
 			if choice == 1:
 				await unfollowAll(user, loop)
-		elif choice == 5:
+		elif choice == 5: #Exit.
 			sys.exit()
 	
 	
