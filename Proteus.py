@@ -86,13 +86,14 @@ async def getUserID(cookie):
 		if request.status_code == 429:
 			continue
 		else:
-			raise UnknownResponse(request.status_code, "https://www.roblox.com/game/GetCurrentUser.ashx")
+			raise UnknownResponse(request.status_code, "https://www.roblox.com/game/GetCurrentUser.ashx", requestText = request.text)
 
 async def getFollowers(ID, cursor=None):
+	# tried = False
 	while True:
 		followedUsers = []
 		async with httpx.AsyncClient() as client:
-			request = await client.get(f"https://friends.roblox.com/v1/users/{ID}/followings", params={"sortOrder": "Asc", "limit": 100, "cursor": cursor})
+			request = await client.get(f"https://friends.roblox.com/v1/users/{ID}/followings", params={"sortOrder": "Asc", "limit": 10, "cursor": cursor})
 		if request.status_code == 200:
 			requestJSON = request.json()
 			for player in requestJSON["data"]:
@@ -101,7 +102,7 @@ async def getFollowers(ID, cursor=None):
 		elif request.status_code == 429:
 			continue
 		else:
-			raise UnknownResponse(request.status_code, f"https://friends.roblox.com/v1/users/{ID}/followings")
+			raise UnknownResponse(request.status_code, f"https://friends.roblox.com/v1/users/{ID}/followings", requestText = request.text)
 
 class InvalidCookie(Exception):
 	def __init__(self, cookie):
@@ -110,72 +111,103 @@ class InvalidCookie(Exception):
 		super().__init__(self.err)
 
 class UnknownResponse(Exception):
-	def __init__(self, responseCode, requestURL):
+	def __init__(self, responseCode, requestURL, requestText = None):
 		self.response = responseCode
 		self.request = requestURL
-		self.err = f"Unknown response code {self.response} on request {self.request}"
+		self.requestText = requestText
+		self.err = f"Unknown response code {self.response} on request {self.request} {'Text: '+self.requestText if self.requestText is not None else None}"
 		super().__init__(self.err)
+
+async def unfollowUser(user, cookie, csrfToken):
+	while True:
+		async with httpx.AsyncClient() as client:
+			request = await client.post(f"https://friends.roblox.com/v1/users/{user}/unfollow", headers={"Cookie": cookie, "X-CSRF-TOKEN": csrfToken, "Content-Length": "0"})
+		if request.status_code == 200:
+			print(f"Successfully unfollowed {user}")
+			return
+		elif request.status_code == 429:
+			continue
 
 async def unfollowProvider(queue, ID):
 	followed, cursor = await getFollowers(ID)
 	for i in followed:
 		await queue.put(i)
 	while cursor != None:
-		followed, cursor = await getFollowers(cursor, ID)
+		followed, cursor = await getFollowers(ID, cursor=cursor)
 		for i in followed:
 			await queue.put(i)
-	await queue.put(None)
-			
-async def unfollowUser(user, cookie, csrfToken):
-	while True:
-		async with httpx.AsyncClient() as client:
-			request = await client.post(f"https://friends.roblox.com/v1/users/{user}/unfollow", headers={"Cookie": cookie, "X-CSRF-TOKEN": csrfToken, "Content-Length": "0"})
-		if request.status_code == 200:
-			print("Successfully unfollowed {user}")
-			return
-		elif request.status_code == 429:
-			continue
+	
+	for i in range(0, 5):
+		await queue.put(None)
+	return
 	
 async def unfollowConsumer(queue, user):
 	target = await queue.get()
 	while target != None:
 		await unfollowUser(target, user.cookie, user.csrf)
+		queue.task_done()
 		target = await queue.get()
+	return
 	
 async def unfollowAll(user, loop):
 	ID = await getUserID(user.cookie)
 	toUnfollow = asyncio.Queue(maxsize=100)
 	tasks = []
 	tasks.append(loop.create_task(unfollowProvider(toUnfollow, ID)))
-	tasks.append(loop.create_task(unfollowConsumer(toUnfollow, user)))
-	await asyncio.wait(tasks)
-
+	for i in range(0, 5):
+		tasks.append(loop.create_task(unfollowConsumer(toUnfollow, user)))
+	await asyncio.gather(*tasks)
+	input("Successfully unfollowed all users. Press Enter to return to the menu.")
 
 class User():
 	
 	def __init__(self, cookie, loop):
 		self.cookie = cookie
-		# loop.create_task(self.updateCSRF(self.cookie))
 	
 	async def updateCSRF(self):
 		while True:
 			try:
 				async with httpx.AsyncClient() as client:
-					request = await client.get("https://auth.roblox.com/v1/logout", headers={"Cookie": self.cookie})
+					request = await client.post("https://auth.roblox.com/v1/logout", headers={"Cookie": self.cookie})
 			except Exception as error:
 				raise(error)
 			
 			try:
 				self.csrf = request.headers["x-csrf-token"]
+				return
 			except Exception:
 				try:
 					if request.status_code == 429:
 						continue
 					if request.status_code == 401:
 						raise InvalidCookie(self.cookie)
-					raise UnknownResponse(request.status_code, "https://auth.roblox.com/v1/logout")
+					if request.status_code == 405:
+						raise InvalidCookie(self.cookie)
+					raise UnknownResponse(request.status_code, "https://auth.roblox.com/v1/logout", requestText = request.text)
 				except Exception as error:
 					raise(error)
+
+
+async def getFollowingCount(ID):
+	while True:
+		try:
+			async with httpx.AsyncClient() as client:
+				request = await client.get(f"https://friends.roblox.com/v1/users/{ID}/followings/count")
+		except Exception as error:
+			raise(error)
+		
+		try:
+			return request.json()["count"]
+		except Exception as error:
+			raise UnknownResponse(request.status_code, f"https://friends.roblox.com/v1/users/{ID}/followings/count", requestText = request.text)
+
+async def checkFollowingCount(user):
+	print("Working...")
+	ID = await getUserID(user.cookie)
+	following = await getFollowingCount(ID)
+	clear()
+	print(f"You are currently following {following} users!")
+	input("Press Enter to return to the menu.")
 
 async def main():
 	#Loading config
@@ -203,25 +235,25 @@ async def main():
 	logging.info("Cookie is valid.")
 	print("Cookie is Valid!")
 	
-	
 	while True:
 		choice = menuOption(["Follow players of all ranks.", "Select which ranks to follow.", "Check how many users you are following.", "Unfollow all users.", "Exit."], "Please select what you would like to do. \n")
 
 		if choice == 1:
 			pass
 			#Follow players of all ranks.
-		if choice == 2:
+		elif choice == 2:
 			pass
 			#Select which ranks to follow.
-		if choice == 3:
-			pass
+		elif choice == 3:
+			await checkFollowingCount(user)
 			#Check following count.
-		if choice == 4:
-			await unfollowAll(user, loop)
+		elif choice == 4:
 			#Unfollow all.
-		if choice == 5:
+			choice = menuOption(["Yes.", "No."], "Are you sure you want to unfollow everyone? This is non-reversible!")
+			if choice == 1:
+				await unfollowAll(user, loop)
+		elif choice == 5:
 			sys.exit()
-	
 	
 	
 
