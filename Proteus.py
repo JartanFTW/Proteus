@@ -8,6 +8,7 @@ import time
 import psycopg2
 import logging
 import traceback
+import copy
 
 version = "3.0"
 
@@ -60,7 +61,7 @@ def loadConfig():
 				logging.getLogger("root").setLevel(logging.info)
 				logging.info("Debug mode enabled. Set logging level to info.")
 			
-			return parser["WHITELIST"]["username"], parser["WHITELIST"]["password"], apiCookie, [x.strip() for x in parser["SETTINGS"]["groups"].split(",")], parser["SETTINGS"]["onlyPremium"].upper(), parser["OTHER"]["blacklist"]
+			return parser["WHITELIST"]["username"], parser["WHITELIST"]["password"], apiCookie, {x.strip() : [] for x in parser["SETTINGS"]["groups"].split(",")}, parser["SETTINGS"]["onlyPremium"].upper(), parser["OTHER"]["blacklist"]
 			
 		except Exception as error:
 			logging.warning(f"Failed to load config: {error}")
@@ -77,23 +78,12 @@ async def checkWhitelist(whitelistUsername, whitelistPassword):
 		await asyncio.sleep(3600)
 		#Check whitelist code here.
 
-async def getUserID(cookie):
-	while True:
-		async with httpx.AsyncClient() as client:
-			request = await client.post("https://www.roblox.com/game/GetCurrentUser.ashx", headers={"Cookie": cookie})
-		if request.status_code == 200:
-			return int(request.text)
-		if request.status_code == 429:
-			continue
-		else:
-			raise UnknownResponse(request.status_code, "https://www.roblox.com/game/GetCurrentUser.ashx", requestText = request.text)
-
 async def getFollowers(ID, cursor=None):
 	# tried = False
 	while True:
 		followedUsers = []
 		async with httpx.AsyncClient() as client:
-			request = await client.get(f"https://friends.roblox.com/v1/users/{ID}/followings", params={"sortOrder": "Asc", "limit": 10, "cursor": cursor})
+			request = await client.get(f"https://friends.roblox.com/v1/users/{ID}/followings", params={"sortOrder": "Asc", "limit": 100, "cursor": cursor})
 		if request.status_code == 200:
 			requestJSON = request.json()
 			for player in requestJSON["data"]:
@@ -150,10 +140,10 @@ async def unfollowConsumer(queue, user):
 	return
 	
 async def unfollowAll(user, loop):
-	ID = await getUserID(user.cookie)
-	toUnfollow = asyncio.Queue(maxsize=100)
+	await user.getUserID()
+	toUnfollow = asyncio.Queue(maxsize=300)
 	tasks = []
-	tasks.append(loop.create_task(unfollowProvider(toUnfollow, ID)))
+	tasks.append(loop.create_task(unfollowProvider(toUnfollow, user.ID)))
 	for i in range(0, 5):
 		tasks.append(loop.create_task(unfollowConsumer(toUnfollow, user)))
 	await asyncio.gather(*tasks)
@@ -161,7 +151,7 @@ async def unfollowAll(user, loop):
 
 class User():
 	
-	def __init__(self, cookie, loop):
+	def __init__(self, cookie):
 		self.cookie = cookie
 	
 	async def updateCSRF(self):
@@ -186,6 +176,18 @@ class User():
 					raise UnknownResponse(request.status_code, "https://auth.roblox.com/v1/logout", requestText = request.text)
 				except Exception as error:
 					raise(error)
+					
+	async def getUserID(self):
+		while True:
+			async with httpx.AsyncClient() as client:
+				request = await client.post("https://www.roblox.com/game/GetCurrentUser.ashx", headers={"Cookie": self.cookie})
+			if request.status_code == 200:
+				self.ID = int(request.text)
+				return
+			elif request.status_code == 429:
+				continue
+			else:
+				raise UnknownResponse(request.status_code, "https://www.roblox.com/game/GetCurrentUser.ashx", requestText = request.text)
 
 
 async def getFollowingCount(ID):
@@ -203,11 +205,68 @@ async def getFollowingCount(ID):
 
 async def checkFollowingCount(user):
 	print("Working...")
-	ID = await getUserID(user.cookie)
-	following = await getFollowingCount(ID)
+	await getUserID(user.cookie)
+	following = await getFollowingCount(user.ID)
 	clear()
 	print(f"You are currently following {following} users!")
 	input("Press Enter to return to the menu.")
+
+
+def getRanks():
+	for groupID in groups.keys():
+		ranks = []
+		while True:
+			try:
+				request = httpx.get(f"https://groups.roblox.com/v1/groups/{groupID}/roles")
+				break
+			except:
+				print("Hit rate-limit while grabbing ranks. Waiting 15 seconds.")
+				time.sleep(15)
+		requestJSON = request.json()
+		for rank in requestJSON["roles"]:
+			ranks.append(rank["id"])
+		groups[groupID] = ranks
+	
+class groupManager():
+
+	def __init__(self, groups):
+		self.initGroups = groups
+		self.groups = groups
+	
+	def resetData(self): #Easier to do this than to wipe all the ranks one by one.
+		self.groups = self.initGroups
+	
+	async def updateGroups(self):
+		await self.checkGroupValidity()
+		await self.updateRanks()
+	
+	async def checkGroupValidity():
+		for groupID in self.groups.keys().copy:
+			while True:
+				async with httpx.AsyncClient() as client:
+					request = await client.get(f"https://groups.roblox.com/v1/groups/{groupID}")
+				if request.status_code == 200:
+					break
+				elif request.status_code == 429:
+					continue
+				elif request.status_code == 400:
+					self.groups.pop(groupID)
+					break
+				raise UnknownResponse(request.status_code, f"https://groups.roblox.com/v1/groups/{groupID}", request.text)
+				
+	async def updateRanks():
+		for groupID in self.groups.keys():
+			while True:
+				async with httpx.AsyncClient() as client:
+					request = await client.get(f"https://groups.roblox.com/v1/groups/{groupID}/roles")
+				if request.status_code == 200:
+					for rank in request.json()["roles"]:
+						self.groups[groupID].append(rank["id"])
+					break
+				elif request.status_code == 429:
+					continue
+				raise UnknownResponse(request.status_code, f"https://groups.roblox.com/v1/groups/{groupID}/roles", request.text)
+
 
 async def main():
 	#Loading config
@@ -224,20 +283,20 @@ async def main():
 	
 	print("Checking Whitelist.")
 	logging.info("Init Whitelist Check.")
-	#loop.run_until_complete(checkWhitelist())
+	#await checkWhitelist()
 	logging.info("Successfully Complete Init Whitelist Check.")
 	print("Whitelist Validated.")
 	
 	print("Checking Cookie.")
 	logging.info("Init Checking Cookie.")
-	user = User(apiCookie, loop)
+	user = User(apiCookie)
 	await user.updateCSRF()
 	logging.info("Cookie is valid.")
 	print("Cookie is Valid!")
 	
 	while True:
 		choice = menuOption(["Follow players of all ranks.", "Select which ranks to follow.", "Check how many users you are following.", "Unfollow all users.", "Exit."], "Please select what you would like to do. \n")
-
+		#Dev notes: Look into using asyncio loop.run_in_executor to create an asynchronous input()
 		if choice == 1: #Follow players of all ranks.
 			pass
 		elif choice == 2: #Select which ranks to follow.
