@@ -365,29 +365,6 @@ async def followProvider(user, groupObj, queue, onlyPremium, blacklist, thread):
 				toFollow, groupObj.groups[groupID][index]["cursor"] = await groupObj.getRankUsers(groupID, rank["id"], cursor=groupObj.groups[groupID][index]["cursor"])
 	await queue.put(None)
 	return
-			
-
-# async def followProvider(user, groupObj, queue, onlyPremium, blacklist):
-	# for groupID, data in groupObj.groups.items():
-		# for index, rank in enumerate(data):
-			# print(groupObj.groups[groupID][index])
-			# toFollow, groupObj.groups[groupID][index]["cursor"] = await groupObj.getRankUsers(groupID, rank["id"])
-			# for target in toFollow:
-				# check = await checkTarget(user, target, onlyPremium, blacklist)
-				# if check == True:
-					# await queue.put(target)
-				# else:
-					# print(f"Skipping {target} because {check}")
-			# while groupObj.groups[groupID][index]["cursor"] != None:
-				# toFollow, groupObj.groups[groupID][index]["cursor"] = await getRankUsers(groupID, rank["id"], cursor=groupObj.groups[groupID][index]["cursor"])
-				# for target in toFollow:
-					# check = await checkTarget(user, target, onlyPremium, blacklist)
-					# if check == True:
-						# await queue.put(target)
-					# else:
-						# print(f"Skipping {target} because {check}")
-	# await queue.put(None)
-	# return
 
 async def followConsumer(user, queue):
 	target = await queue.get()
