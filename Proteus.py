@@ -161,14 +161,14 @@ class User():
 			return self.ID
 		while True:
 			async with httpx.AsyncClient() as client:
-				request = await client.post("https://www.roblox.com/game/GetCurrentUser.ashx", headers={"Cookie": self.cookie})
+				request = await client.get("https://users.roblox.com/v1/users/authenticated", headers={"Cookie": self.cookie})
 			if request.status_code == 200:
-				self.ID = int(request.text)
+				self.ID = int(request.json()["id"])
 				return
 			elif request.status_code == 429:
 				continue
 			else:
-				raise UnknownResponse(request.status_code, "https://www.roblox.com/game/GetCurrentUser.ashx", requestText = request.text)
+				raise UnknownResponse(request.status_code, "https://users.roblox.com/v1/users/authenticated", requestText = request.text)
 	
 	async def getFollowingCount(self):
 		if self.ID == None:
