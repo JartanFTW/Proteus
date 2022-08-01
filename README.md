@@ -1,2 +1,2 @@
 # Proteus
-Proteus Follow Bot. Sold in the TAP Discord Server.
+Proteus Follow Bot for Roblox
